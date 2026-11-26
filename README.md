@@ -1,67 +1,83 @@
 # Möbius Spectral Canceller (MSC)
 
-**A deterministic, number-theoretic spectral processor**  
-Derived from the *Collective Gain* operator and the restricted Rayleigh quotient of Modular Waveform Mechanics.
+**A deterministic Möbius-indexed spectral gain processor.**
 
----
-
-## Concept
-
-The collective gain
+The current DSP applies a fixed arithmetic gain pattern to non-negative FFT bins. It does **not** calculate the Collective Gain quantity
 
 \[
-\Gamma(N) = \frac{M(N)^2}{G(N)}
+\Gamma(N) = \frac{M(N)^2}{G(N)}.
 \]
 
-measures the net arithmetic cancellation present in the Möbius sequence \(\mu(n)\).  
-This plugin projects that structure into the frequency domain:
+That expression is part of the project's mathematical motivation, not an operation currently implemented by the plugin. The accurate implementation description is a Möbius-indexed spectral gain processor.
 
-| \(\mu(n)\) | Action on FFT bin |
-|------------|-------------------|
-| \(-1\)     | Phase inversion / attenuation (cancellation) |
-| \(+1\)     | Boost (constructive interference) |
-| \(0\)      | Mute (non-square-free “silence”) |
+## Implemented spectral law
 
-The result is a sparse, fractal-like spectral envelope that is **signal-independent** and audibly distinct from any statistical resonator or noise-reduction algorithm.
+For each processed interior FFT bin:
+
+\[
+n = \operatorname{round}(k\cdot\mathrm{scale}),\qquad
+g(n)=1+d\mu(n).
+\]
+
+The implementation applies this real gain to both the real and imaginary components of the bin. It therefore changes magnitude without phase inversion.
+
+| Möbius value | Gain at depth d | Meaning |
+|---|---:|---|
+| \(\mu(n)=-1\) | \(1-d\) | Attenuation; reaches zero at d=1 |
+| \(\mu(n)=0\) | \(1\) | Unchanged |
+| \(\mu(n)=+1\) | \(1+d\) | Boost; reaches 2 (+6.02 dB) at d=1 |
+
+Depth remains in [-1, 1]. At maximum positive depth, positive-Möbius bins can receive +6.02 dB per-bin gain. This can create peaks above full scale; the current implementation does not include a limiter or automatic headroom compensation. Set depth conservatively and manage downstream headroom.
+
+DC and Nyquist are intentionally excluded. Only bins k=1 through N/2-1 are processed. The gain is non-negative over the full parameter range, so it does not invert phase.
 
 ## Parameters
 
-| ID     | Range          | Default | Description |
-|--------|----------------|---------|-------------|
-| Depth  | \([-1, 1]\)    | 0       | Intensity & polarity of the Möbius mask. 0 = bypass. |
-| Scale  | \([0.01, 10]\) | 1       | Maps bin index \(k\) → integer \(n = \mathrm{round}(k\cdot\mathrm{scale})\). |
-| Mix    | \([0, 1]\)     | 1       | Dry/Wet blend. |
+| Parameter | Range | Default | Description |
+|---|---:|---:|---|
+| Depth | [-1, 1] | 0 | Intensity of the Möbius-indexed gain |
+| Scale | [0.01, 10] | 1 | Maps FFT bin k to integer n = round(k * scale) |
+| Mix | [0, 1] | 1 | Delayed dry/wet blend |
 
-## Architecture
+## DSP architecture
 
-- **STFT**: 2048-point real FFT, Hann window, 75 % overlap (hop = 512).
-- **Möbius table**: linear sieve pre-computed at construction up to \(N=16384\).
-- **Real-time safety**: only table look-ups and complex multiplies on the audio thread.
-- **Framework**: JUCE 8, VST3 + Standalone.
+- 2048-point real FFT.
+- Hann analysis and synthesis windows.
+- 512-sample hop (75% overlap).
+- Möbius linear sieve precomputed through N=16384.
+- Independent per-channel input history, overlap-add accumulation, normalization, and dry-delay storage.
+- Frame scheduling is driven by each channel's sample counter; host callback sizes do not define FFT frame boundaries.
+- The processor reports a fixed 4096-sample latency to cover frame completion and output scheduling.
+- FFT work storage is allocated at 2 * fftSize floats, as required by JUCE's real-only forward and inverse transform APIs.
+- juce::ScopedNoDenormals is active at the start of processBlock.
+- The implementation instantiates juce::dsp::FFT. Its selected engine is platform-dependent; JUCE 8.0.4's fallback engine contains a SpinLock in its transform path. Therefore lock-free real-time execution is not established and must be verified for each target platform/backend.
+
+The overlap-add path accumulates the analysis/synthesis window product and divides by the accumulated squared-window weight. This is intended to make the zero-depth wet path reconstruct the delayed input; it still requires the automated identity/null test described below before release.
+
+## Validation status
+
+The repository's DSP changes must not be treated as release-certified until the following are built and run against the exact JUCE 8.0.4 backend:
+
+1. Zero-depth, fully-wet identity/null test against input delayed by 4096 samples.
+2. Mix=0 delayed-dry test against the same latency.
+3. Block-size invariance for 64, 128, 256, 512, and 1024 sample callbacks.
+4. Stereo isolation with different left/right signals.
+5. ASan/UBSan runs over short and long streams.
+6. Parameter automation and state save/restore.
+7. Peak/headroom measurements at positive depth, including broadband and transient material.
+8. Real-time allocation/lock instrumentation and CPU profiling.
+
+No benchmark, sanitizer, host-compatibility, or runtime pass is claimed by this source update alone.
 
 ## Build
 
-```bash
-git clone https://github.com/<your-user>/Mobius-Spectral-Canceller.git
-cd Mobius-Spectral-Canceller
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
+    git clone https://github.com/ljrseals-dev/Mobius-Cancellar.git
+    cd Mobius-Cancellar
+    cmake -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --config Release
 
-The VST3 will appear in `build/MobiusSpectralCanceller_artefacts/Release/VST3/`.
-
-Requires a C++17 compiler and CMake ≥ 3.22. JUCE is fetched automatically.
-
-## Why this is new
-
-Existing spectral tools decide which bins to cut from statistical or psycho-acoustic models of the *input*.  
-The Möbius Spectral Canceller imposes a **fixed arithmetic constellation** derived from pure number theory.  
-It is a direct sonification of the dual signed reserve / collective-gain operator link introduced in the companion paper on Collective Arithmetic Transformation.
+Requires CMake 3.22 and JUCE 8.0.4 (fetched by CMake). The plugin targets VST3 and Standalone.
 
 ## License
 
-MIT – see [LICENSE](LICENSE).
-
----
-
-*Modular Waveform Mechanics · November 2026*
+MIT — see LICENSE. The copyright holder should be confirmed by the project rights holder before distribution.
