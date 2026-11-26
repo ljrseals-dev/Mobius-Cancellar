@@ -161,9 +161,10 @@ void MobiusSpectralCancellerAudioProcessor::applyMobiusMask (float* data, int nu
     const float depth = depthParam->load (std::memory_order_relaxed);
     const float scale = scaleParam->load (std::memory_order_relaxed);
 
-    // Packed non-negative-frequency layout: data[0]=DC, data[1]=Nyquist;
+    // JUCE dsp::FFT guarantees interleaved complex storage for interior bins:
     // data[2*k]=Re(k), data[2*k+1]=Im(k), 1 <= k < N/2.
-    // DC and Nyquist are intentionally excluded from the mask.
+    // Endpoint packing differs between FFT engines, so DC and Nyquist are
+    // intentionally excluded and their storage is never accessed here.
     for (int k = 1; k < numBins - 1; ++k)
     {
         const int n = juce::roundToInt (static_cast<float> (k) * scale);
