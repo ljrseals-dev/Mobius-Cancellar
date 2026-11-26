@@ -6,15 +6,22 @@
 
 namespace
 {
-constexpr int latency = 4096;
+constexpr int latency = 2048;
+constexpr float tolerance = 3.0e-4f;
 
 bool runIdentityTest (int blockSize, float mix, const char* label)
 {
     constexpr int totalSamples = 24000;
     MobiusSpectralCancellerAudioProcessor processor;
-    processor.getAPVTS().getParameter ("depth")->setValueNotifyingHost (0.5f); // depth = 0
+    processor.getAPVTS().getParameter ("depth")->setValueNotifyingHost (0.5f); // normalized 0.5 => depth 0
     processor.getAPVTS().getParameter ("mix")->setValueNotifyingHost (mix);
     processor.prepareToPlay (48000.0, blockSize);
+
+    if (processor.getLatencySamples() != latency)
+    {
+        std::cerr << "reported latency mismatch: " << processor.getLatencySamples() << "\n";
+        return false;
+    }
 
     std::vector<float> left (totalSamples), right (totalSamples);
     for (int i = 0; i < totalSamples; ++i)
@@ -50,7 +57,6 @@ bool runIdentityTest (int blockSize, float mix, const char* label)
         }
     }
 
-    const float tolerance = 2.0e-4f;
     if (maxError > tolerance)
     {
         std::cerr << label << " blockSize=" << blockSize
@@ -59,21 +65,57 @@ bool runIdentityTest (int blockSize, float mix, const char* label)
     }
     return true;
 }
+
+bool testMobiusTableAndGain()
+{
+    const MobiusTable table (128);
+    const bool tableOk = table[1] == 1 && table[2] == -1 && table[4] == 0
+                      && table[6] == 1 && table[30] == -1 && table[12] == 0;
+    const bool gainOk = std::abs (MobiusSpectralCancellerAudioProcessor::computeMobiusGain (-1, 1.0f)) < 1.0e-7f
+                     && std::abs (MobiusSpectralCancellerAudioProcessor::computeMobiusGain (0, 1.0f) - 1.0f) < 1.0e-7f
+                     && std::abs (MobiusSpectralCancellerAudioProcessor::computeMobiusGain (1, 1.0f) - 2.0f) < 1.0e-7f
+                     && std::abs (MobiusSpectralCancellerAudioProcessor::computeMobiusGain (1, -1.0f)) < 1.0e-7f;
+    return tableOk && gainOk;
+}
+
+bool testStateRoundTrip()
+{
+    MobiusSpectralCancellerAudioProcessor source;
+    source.getAPVTS().getParameter ("depth")->setValueNotifyingHost (0.75f);
+    source.getAPVTS().getParameter ("scale")->setValueNotifyingHost (0.35f);
+    source.getAPVTS().getParameter ("mix")->setValueNotifyingHost (0.60f);
+
+    juce::MemoryBlock state;
+    source.getStateInformation (state);
+    MobiusSpectralCancellerAudioProcessor restored;
+    restored.setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    const auto* a = source.getAPVTS().getRawParameterValue ("depth");
+    const auto* b = restored.getAPVTS().getRawParameterValue ("depth");
+    const auto* c = source.getAPVTS().getRawParameterValue ("scale");
+    const auto* d = restored.getAPVTS().getRawParameterValue ("scale");
+    const auto* e = source.getAPVTS().getRawParameterValue ("mix");
+    const auto* f = restored.getAPVTS().getRawParameterValue ("mix");
+    return std::abs (a->load() - b->load()) < 1.0e-5f
+        && std::abs (c->load() - d->load()) < 1.0e-5f
+        && std::abs (e->load() - f->load()) < 1.0e-5f;
+}
 }
 
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    bool passed = true;
-    for (const int blockSize : { 64, 128, 256, 512, 1024 })
+    bool passed = testMobiusTableAndGain() && testStateRoundTrip();
+
+    for (const int blockSize : { 1, 64, 127, 128, 256, 512, 1024 })
     {
-        passed &= runIdentityTest (blockSize, 1.0f, "fully-wet identity");
-        passed &= runIdentityTest (blockSize, 0.0f, "delayed dry");
+        passed = runIdentityTest (blockSize, 1.0f, "fully-wet zero-depth identity") && passed;
+        passed = runIdentityTest (blockSize, 0.0f, "delayed dry path") && passed;
     }
 
     if (! passed)
         return 1;
 
-    std::cout << "MSC DSP identity and delayed-dry tests passed.\n";
+    std::cout << "MSC table, gain, state, identity, and dry-path tests passed.\n";
     return 0;
 }
