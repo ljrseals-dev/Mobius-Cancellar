@@ -1,0 +1,31 @@
+# Build
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.xcworkspace
+*.xcodeproj
+*.user
+*.suo
+
+# JUCE / Projucer
+JuceLibraryCode/
+Builds/
+*.jucer
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Plugin artefacts
+*.vst3
+*.component
+*.aaxplugin
