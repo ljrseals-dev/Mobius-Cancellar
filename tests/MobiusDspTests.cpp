@@ -42,9 +42,9 @@ bool runIdentityTest (int blockSize, float mix, const char* label)
         {
             const int64_t absolute = static_cast<int64_t> (offset + i);
             const float expectedL = absolute >= latency
-                ? left[static_cast<size_t> (absolute - latency)] * mix : 0.0f;
+                ? left[static_cast<size_t> (absolute - latency)] : 0.0f;
             const float expectedR = absolute >= latency
-                ? right[static_cast<size_t> (absolute - latency)] * mix : 0.0f;
+                ? right[static_cast<size_t> (absolute - latency)] : 0.0f;
             maxError = juce::jmax (maxError, std::abs (block.getSample (0, i) - expectedL));
             maxError = juce::jmax (maxError, std::abs (block.getSample (1, i) - expectedR));
         }
