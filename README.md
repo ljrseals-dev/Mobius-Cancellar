@@ -48,8 +48,9 @@ DC and Nyquist are intentionally excluded. Only bins k=1 through N/2-1 are proce
 - Independent per-channel input history, overlap-add accumulation, normalization, and dry-delay storage.
 - Frame scheduling is driven by each channel's sample counter; host callback sizes do not define FFT frame boundaries.
 - The processor reports a fixed 4096-sample latency to cover frame completion and output scheduling.
-- FFT work storage is allocated at 2 * fftSize floats for JUCE's non-negative-frequency real transform path.
+- FFT work storage is allocated at 2 * fftSize floats, as required by JUCE's real-only forward and inverse transform APIs.
 - juce::ScopedNoDenormals is active at the start of processBlock.
+- The implementation instantiates juce::dsp::FFT. Its selected engine is platform-dependent; JUCE 8.0.4's fallback engine contains a SpinLock in its transform path. Therefore lock-free real-time execution is not established and must be verified for each target platform/backend.
 
 The overlap-add path accumulates the analysis/synthesis window product and divides by the accumulated squared-window weight. This is intended to make the zero-depth wet path reconstruct the delayed input; it still requires the automated identity/null test described below before release.
 
