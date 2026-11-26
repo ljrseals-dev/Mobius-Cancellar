@@ -1,10 +1,10 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_dsp/juce_dsp.h>
 #include <array>
 #include <vector>
 #include <atomic>
 #include <cstdint>
+#include <complex>
 #include "MobiusTable.h"
 
 class MobiusSpectralCancellerAudioProcessor : public juce::AudioProcessor
@@ -33,6 +33,7 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
     const MobiusTable& getMobiusTable() const { return mobiusTable; }
     int getFftSize() const noexcept { return fftSize; }
+    static float computeMobiusGain (int8_t mu, float depth) noexcept;
 
 private:
     juce::AudioProcessorValueTreeState apvts;
@@ -41,9 +42,9 @@ private:
     static constexpr int fftSize = 1 << fftOrder;
     static constexpr int hopSize = fftSize / 4;
     static constexpr int maxMobiusN = 16384;
-    static constexpr int latencySamples = 2 * fftSize;
+    static constexpr int latencySamples = fftSize;
     static constexpr int ringCapacity = 4 * fftSize;
-    juce::dsp::FFT fft { fftOrder };
+
     MobiusTable mobiusTable { maxMobiusN };
     std::vector<float> windowValues;
     std::array<std::vector<float>, 2> inputRing;
@@ -51,13 +52,21 @@ private:
     std::array<std::vector<float>, 2> olaWeight;
     std::array<std::vector<float>, 2> dryDelay;
     std::array<int64_t, 2> sampleCounters {{ 0, 0 }};
-    std::vector<float> fftWork;
+
+    // Fixed-size, precomputed radix-2 FFT state. No heap work, backend lock,
+    // or allocation is used by the audio-thread transform.
+    std::array<std::complex<float>, fftSize> fftWork {};
+    std::array<std::complex<float>, fftSize / 2> fftTwiddles {};
+    std::array<unsigned, fftSize> bitReverse {};
+
     std::atomic<float>* depthParam = nullptr;
     std::atomic<float>* scaleParam = nullptr;
     std::atomic<float>* mixParam = nullptr;
+
     void processChannel (int channel, float* samples, int numSamples);
     void processFrame (int channel, int64_t frameEndSample);
-    void applyMobiusMask (float* packedSpectrum, int numBins);
+    void performFFT (bool inverse) noexcept;
+    void applyMobiusMask() noexcept;
     static int ringIndex (int64_t sample) noexcept;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MobiusSpectralCancellerAudioProcessor)
 };

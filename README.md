@@ -2,82 +2,78 @@
 
 **A deterministic Möbius-indexed spectral gain processor.**
 
-The current DSP applies a fixed arithmetic gain pattern to non-negative FFT bins. It does **not** calculate the Collective Gain quantity
+The current DSP applies a Möbius-indexed gain law to interior bins of a short-time Fourier transform (STFT). It does **not** calculate the Collective Gain quantity
 
 \[
-\Gamma(N) = \frac{M(N)^2}{G(N)}.
+\Gamma(N)=\frac{M(N)^2}{G(N)}.
 \]
 
-That expression is part of the project's mathematical motivation, not an operation currently implemented by the plugin. The accurate implementation description is a Möbius-indexed spectral gain processor.
+That expression is part of the mathematical motivation, not an operation implemented by the plugin. The accurate description is a Möbius-indexed spectral gain processor.
 
-## Implemented spectral law
+## Spectral law
 
-For each processed interior FFT bin:
+For each interior positive-frequency bin:
 
 \[
-n = \operatorname{round}(k\cdot\mathrm{scale}),\qquad
+n=\operatorname{round}(k\cdot\mathrm{scale}),\qquad
 g(n)=1+d\mu(n).
 \]
 
-The implementation applies this real gain to both the real and imaginary components of the bin. It therefore changes magnitude without phase inversion.
+The same real scalar is applied to the positive-frequency complex coefficient and its conjugate negative-frequency partner. Phase is preserved; no phase inversion is performed.
 
-| Möbius value | Gain at depth d | Meaning |
+| Möbius value | Gain at d=1 | Meaning |
 |---|---:|---|
-| \(\mu(n)=-1\) | \(1-d\) | Attenuation; reaches zero at d=1 |
-| \(\mu(n)=0\) | \(1\) | Unchanged |
-| \(\mu(n)=+1\) | \(1+d\) | Boost; reaches 2 (+6.02 dB) at d=1 |
+| \(\mu(n)=-1\) | 0 | Fully attenuated |
+| \(\mu(n)=0\) | 1 | Unchanged |
+| \(\mu(n)=+1\) | 2 (+6.02 dB) | Boosted |
 
-Depth remains in [-1, 1]. At maximum positive depth, positive-Möbius bins can receive +6.02 dB per-bin gain. This can create peaks above full scale; the current implementation does not include a limiter or automatic headroom compensation. Set depth conservatively and manage downstream headroom.
+Depth is clamped to [-1, 1]. Positive depth can create peaks above full scale; there is no limiter or automatic headroom compensation. The default depth is zero. Use conservative settings and manage downstream headroom.
 
-DC and Nyquist are intentionally excluded. Only bins k=1 through N/2-1 are processed. The gain is non-negative over the full parameter range, so it does not invert phase.
+DC and Nyquist are intentionally excluded. Only bins k=1 through N/2-1 are processed.
 
 ## Parameters
 
-| Parameter | Range | Default | Description |
-|---|---:|---:|---|
-| Depth | [-1, 1] | 0 | Intensity of the Möbius-indexed gain |
-| Scale | [0.01, 10] | 1 | Maps FFT bin k to integer n = round(k * scale) |
-| Mix | [0, 1] | 1 | Delayed dry/wet blend |
+| Parameter | Range | Default |
+|---|---:|---:|
+| Depth | [-1, 1] | 0 |
+| Bin Scale | [0.01, 10] | 1 |
+| Dry/Wet | [0, 1] | 1 |
 
-## DSP architecture
+## DSP implementation
 
-- 2048-point real FFT.
-- Hann analysis and synthesis windows.
-- 512-sample hop (75% overlap).
-- Möbius linear sieve precomputed through N=16384.
-- Independent per-channel input history, overlap-add accumulation, normalization, and dry-delay storage.
-- Frame scheduling is driven by each channel's sample counter; host callback sizes do not define FFT frame boundaries.
-- The processor reports a fixed 4096-sample latency to cover frame completion and output scheduling.
-- FFT work storage is allocated at 2 * fftSize floats, as required by JUCE's real-only forward and inverse transform APIs.
-- juce::ScopedNoDenormals is active at the start of processBlock.
-- The implementation instantiates juce::dsp::FFT. Its selected engine is platform-dependent; JUCE 8.0.4's fallback engine contains a SpinLock in its transform path. Therefore lock-free real-time execution is not established and must be verified for each target platform/backend.
+- 2048-point real-signal radix-2 FFT, implemented locally with fixed-size arrays and precomputed twiddles/bit-reversal indices.
+- No JUCE FFT backend, transform-time heap allocation, or backend spinlock.
+- Hann analysis and synthesis windows; 512-sample hop (75% overlap).
+- Per-channel circular input history, overlap-add accumulation, normalization, and delayed-dry storage.
+- Frame events are scheduled on each channel's sample clock, independently of host callback boundaries.
+- OLA normalization divides by the accumulated squared Hann window, making the zero-depth wet path an identity reconstruction after latency.
+- Reported plugin latency: 2048 samples.
+- `juce::ScopedNoDenormals` is active in `processBlock`.
+- All DSP working storage is allocated before audio processing begins.
 
-The overlap-add path accumulates the analysis/synthesis window product and divides by the accumulated squared-window weight. This is intended to make the zero-depth wet path reconstruct the delayed input; it still requires the automated identity/null test described below before release.
+## Verification
 
-## Validation status
+The CTest regression executable covers:
+1. Möbius sieve known values and gain-law endpoints.
+2. APVTS state save/restore.
+3. Zero-depth, fully-wet identity reconstruction.
+4. Delayed dry-path identity.
+5. Stereo separation using distinct left/right signals.
+6. Callback sizes 1, 64, 127, 128, 256, 512, and 1024 samples.
+7. Exact reported latency check.
 
-The repository's DSP changes must not be treated as release-certified until the following are built and run against the exact JUCE 8.0.4 backend:
-
-1. Zero-depth, fully-wet identity/null test against input delayed by 4096 samples.
-2. Mix=0 delayed-dry test against the same latency.
-3. Block-size invariance for 64, 128, 256, 512, and 1024 sample callbacks.
-4. Stereo isolation with different left/right signals.
-5. ASan/UBSan runs over short and long streams.
-6. Parameter automation and state save/restore.
-7. Peak/headroom measurements at positive depth, including broadband and transient material.
-8. Real-time allocation/lock instrumentation and CPU profiling.
-
-No benchmark, sanitizer, host-compatibility, or runtime pass is claimed by this source update alone.
+CI build and CTest results must pass before a release is considered. Sanitizer, plugin-host, long-duration, automation, and peak/headroom validation remain separate release checks; no such pass is claimed by the source changes alone.
 
 ## Build
 
     git clone https://github.com/ljrseals-dev/Mobius-Cancellar.git
     cd Mobius-Cancellar
-    cmake -B build -DCMAKE_BUILD_TYPE=Release
-    cmake --build build --config Release
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMSC_BUILD_TESTS=ON
+    cmake --build build --parallel
+    ctest --test-dir build --output-on-failure
 
-Requires CMake 3.22 and JUCE 8.0.4 (fetched by CMake). The plugin targets VST3 and Standalone.
+Requires CMake 3.22, a C/C++17 toolchain, and JUCE 8.0.4 fetched by CMake. Targets VST3 and Standalone.
 
 ## License
 
-MIT — see LICENSE. The copyright holder should be confirmed by the project rights holder before distribution.
+MIT — see LICENSE. Confirm the copyright holder and distribution rights before release.

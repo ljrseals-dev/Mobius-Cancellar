@@ -1,27 +1,23 @@
 #pragma once
 #include <vector>
 #include <cstdint>
-#include <cmath>
+#include <stdexcept>
 
-/**
- * Linear sieve for the Möbius function μ(n) up to maxN.
- * μ(1) = 1
- * μ(n) = 0 if n has a squared prime factor
- * μ(n) = (-1)^k if n is square-free with k distinct prime factors
- */
+/** Linear sieve for the Möbius function μ(n), for 1 <= n <= maxN. */
 class MobiusTable
 {
 public:
-    explicit MobiusTable (int maxN)
-        : maxN_ (maxN)
+    explicit MobiusTable (int maxN) : maxN_ (maxN)
     {
+        if (maxN_ < 1)
+            throw std::invalid_argument ("MobiusTable maxN must be at least 1");
         compute();
     }
 
-    /** Returns μ(n). Requires 1 ≤ n ≤ maxN. */
     int8_t operator[] (int n) const
     {
-        jassert (n >= 1 && n <= maxN_);
+        if (n < 1 || n > maxN_)
+            throw std::out_of_range ("MobiusTable index outside [1, maxN]");
         return mu_[static_cast<size_t> (n)];
     }
 
@@ -32,35 +28,33 @@ private:
     {
         mu_.assign (static_cast<size_t> (maxN_) + 1, 0);
         std::vector<int> primes;
-        std::vector<bool> isComposite (static_cast<size_t> (maxN_) + 1, false);
-
+        std::vector<uint8_t> composite (static_cast<size_t> (maxN_) + 1, 0);
         mu_[1] = 1;
 
         for (int i = 2; i <= maxN_; ++i)
         {
-            if (! isComposite[static_cast<size_t> (i)])
+            if (composite[static_cast<size_t> (i)] == 0)
             {
                 primes.push_back (i);
-                mu_[static_cast<size_t> (i)] = -1;          // prime
+                mu_[static_cast<size_t> (i)] = -1;
             }
 
-            for (int p : primes)
+            for (const int p : primes)
             {
-                const long long prod = static_cast<long long> (i) * p;
-                if (prod > maxN_)
+                const int64_t product = static_cast<int64_t> (i) * p;
+                if (product > maxN_)
                     break;
 
-                isComposite[static_cast<size_t> (prod)] = true;
+                const auto index = static_cast<size_t> (product);
+                composite[index] = 1;
 
                 if (i % p == 0)
                 {
-                    mu_[static_cast<size_t> (prod)] = 0;    // squared factor
+                    mu_[index] = 0;
                     break;
                 }
-                else
-                {
-                    mu_[static_cast<size_t> (prod)] = static_cast<int8_t> (-mu_[static_cast<size_t> (i)]);
-                }
+
+                mu_[index] = static_cast<int8_t> (-mu_[static_cast<size_t> (i)]);
             }
         }
     }

@@ -58,7 +58,7 @@ void MobiusSpectralCancellerAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setFont (12.0f);
     g.setColour (juce::Colours::grey);
-    g.drawFittedText ("Collective Gain  ·  Restricted Rayleigh Quotient  ·  Modular Waveform Mechanics",
+    g.drawFittedText ("Möbius-indexed spectral gain  ·  2048-point STFT  ·  75% overlap",
                       getLocalBounds().removeFromTop (56).removeFromBottom (20),
                       juce::Justification::centred, 1);
 

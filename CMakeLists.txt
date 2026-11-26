@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MobiusSpectralCanceller VERSION 1.0.0 LANGUAGES CXX)
+project(MobiusSpectralCanceller VERSION 1.0.0 LANGUAGES C CXX)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -16,6 +18,7 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(MobiusSpectralCanceller
     COMPANY_NAME             "Modular Waveform Mechanics"
+    BUNDLE_ID                "com.mobiuscancellar.plugin"
     PLUGIN_MANUFACTURER_CODE MWM1
     PLUGIN_CODE              Msc1
     FORMATS                  VST3 Standalone
@@ -33,24 +36,17 @@ target_sources(MobiusSpectralCanceller
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
 )
-
-target_compile_definitions(MobiusSpectralCanceller
-    PUBLIC
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0
-)
-
 target_include_directories(MobiusSpectralCanceller PRIVATE Source)
-
+target_compile_definitions(MobiusSpectralCanceller PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
 target_link_libraries(MobiusSpectralCanceller
-    PRIVATE
-        juce::juce_audio_utils
-        juce::juce_dsp
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
-        juce::juce_recommended_warning_flags
+    PRIVATE juce::juce_audio_utils juce::juce_dsp
+    PUBLIC juce::juce_recommended_config_flags
+           juce::juce_recommended_lto_flags
+           juce::juce_recommended_warning_flags
 )
 
 option(MSC_BUILD_TESTS "Build the MSC DSP regression tests" ON)
@@ -74,5 +70,5 @@ if (MSC_BUILD_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
     )
-    add_test(NAME msc_dsp_identity_and_dry COMMAND MobiusDspTests)
+    add_test(NAME msc_dsp_regression COMMAND MobiusDspTests)
 endif()
